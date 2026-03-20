@@ -53,6 +53,8 @@ pub(crate) enum PageType {
     Workflow(Workflow),
 }
 
+
+
 /// An HTML page in the docs directory.
 #[derive(Debug)]
 pub(crate) struct HTMLPage {
@@ -131,6 +133,32 @@ impl PageSections {
             }
         )
     }
+}
+
+#[derive(Serialize)]
+struct JsNode {
+    /// The key of the node.
+    key: String,
+    /// The display name of the node.
+    display_name: String,
+    /// The parent directory of the node.
+    ///
+    /// This is used for displaying the path to the node in the sidebar.
+    parent: String,
+    /// The search name of the node.
+    search_name: String,
+    /// The icon for the node.
+    icon: Option<String>,
+    /// The href for the node.
+    href: Option<String>,
+    /// Whether the node is ancestor.
+    ancestor: bool,
+    /// Whether the node is the current page.
+    current: bool,
+    /// The nest level of the node.
+    nest_level: usize,
+    /// The children of the node.
+    children: Vec<String>,
 }
 
 /// A node in the docs directory tree.
@@ -801,61 +829,16 @@ impl DocsTree {
         }
     }
 
-    /// Render a left sidebar component given a path.
-    ///
-    /// Path is expected to be an absolute path.
-    // TODO: lots here can be improved
-    // e.g. it could be broken into smaller functions, the JS could be
-    // generated in a more structured way, etc.
-    fn render_left_sidebar<P: AsRef<Path>>(&self, path: P) -> Markup {
-        let root = self.root();
-        let path = path.as_ref();
-        let rel_path = path
-            .strip_prefix(self.root_abs_path())
-            .expect("path should be in root");
-        let base = path.parent().expect("path should have a parent");
+   /// Render a left sidebar component given a path.
+   ///
+   /// Path is expected to be an absolute path.
+   // TODO: lots here can be improved
+   // e.g. it could be broken into smaller functions, the JS could be
+   // generated in a more structured way, etc.
 
-        let make_key = |path: &Path| -> String {
-            let path = if path.file_name().expect("path should have a file name") == "index.html" {
-                // Remove unnecessary index.html from the path.
-                // Not needed for the key.
-                path.parent().expect("path should have a parent")
-            } else {
-                path
-            };
-            path.to_string_lossy()
-                .replace("-", "_")
-                .replace(".", "_")
-                .replace(std::path::MAIN_SEPARATOR_STR, "_")
-        };
-
-        #[derive(Serialize)]
-        struct JsNode {
-            /// The key of the node.
-            key: String,
-            /// The display name of the node.
-            display_name: String,
-            /// The parent directory of the node.
-            ///
-            /// This is used for displaying the path to the node in the sidebar.
-            parent: String,
-            /// The search name of the node.
-            search_name: String,
-            /// The icon for the node.
-            icon: Option<String>,
-            /// The href for the node.
-            href: Option<String>,
-            /// Whether the node is ancestor.
-            ancestor: bool,
-            /// Whether the node is the current page.
-            current: bool,
-            /// The nest level of the node.
-            nest_level: usize,
-            /// The children of the node.
-            children: Vec<String>,
-        }
-
-        let all_nodes = root
+   // A transformation that converts a depth-first traversal of a documentation tree into a flat list of UI navigation nodes for a sidebar.
+   fn build_left_sidebar_nodes<F: Fn(&Path) -> String>(&self, root: &Node, path: &Path, rel_path: &Path, make_key: F, base: &Path) -> Vec<JsNode> {        
+    root
             .depth_first_traversal()
             .iter()
             .skip(1) // Skip the root node
@@ -957,9 +940,13 @@ impl DocsTree {
                     children,
                 }
             })
-            .collect::<Vec<JsNode>>();
+            .collect::<Vec<JsNode>>()
 
-        let js_dag = all_nodes
+   }
+
+
+   fn generate_left_sidebar_state(&self, nodes: &[JsNode], base: &Path) -> String {
+         let js_dag = nodes
             .iter()
             .map(|node| {
                 let children = node
@@ -973,13 +960,13 @@ impl DocsTree {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let all_nodes_true = all_nodes
+        let all_nodes_true = nodes
             .iter()
             .map(|node| format!("'{}': true", node.key))
             .collect::<Vec<String>>()
             .join(", ");
 
-        let data = format!(
+        format!(
             r#"{{
                 showWorkflows: $persist({}).using(sessionStorage),
                 dirOpen: '{}',
@@ -1025,7 +1012,7 @@ impl DocsTree {
             !self.init_on_full_directory,
             self.get_asset(base, "chevron-up.svg"),
             self.get_asset(base, "chevron-down.svg"),
-            all_nodes
+            nodes
                 .iter()
                 .map(|node| serde_json::to_string(node).expect("should serialize node"))
                 .collect::<Vec<String>>()
@@ -1033,9 +1020,13 @@ impl DocsTree {
             js_dag,
             all_nodes_true,
             all_nodes_true,
-        );
+        )
 
-        html! {
+   }
+
+   // Renders the HTML for the left sidebar
+   fn render_left_sidebar_html(&self, data: &str, base: &Path, root: &Node, path: &Path) -> Markup {
+            html! {
             div x-data=(data) x-cloak x-init="$nextTick(() => { document.querySelector('.is-scrolled-to')?.scrollIntoView({ block: 'center', behavior: 'instant' }); })" class="left-sidebar__container" {
                 // top navbar
                 div class="sticky px-4" {
@@ -1095,6 +1086,32 @@ impl DocsTree {
             }
         }
     }
+  
+   fn render_left_sidebar<P: AsRef<Path>>(&self, path: P) -> Markup {
+       let root = self.root();
+       let path = path.as_ref();
+       let rel_path = path
+           .strip_prefix(self.root_abs_path())
+           .expect("path should be in root");
+       let base = path.parent().expect("path should have a parent");
+        let make_key = |path: &Path| -> String {
+           let path = if path.file_name().expect("path should have a file name") == "index.html" {
+               // Remove unnecessary index.html from the path.
+               // Not needed for the key.
+               path.parent().expect("path should have a parent")
+           } else {
+               path
+           };
+           path.to_string_lossy()
+               .replace("-", "_")
+               .replace(".", "_")
+               .replace(std::path::MAIN_SEPARATOR_STR, "_")
+       };
+       let all_nodes = Self::build_left_sidebar_nodes(self, root, path, rel_path, make_key, base);
+       let data = Self::generate_left_sidebar_state(self, &all_nodes, base);
+       Self::render_left_sidebar_html(&self, &data, base, root, path)
+   }
+
 
     /// Render a right sidebar component.
     fn render_right_sidebar(&self, headers: PageSections) -> Markup {

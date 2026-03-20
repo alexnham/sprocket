@@ -829,9 +829,7 @@ impl DocsTree {
         }
     }
 
-   /// Render a left sidebar component given a path.
-   ///
-   /// Path is expected to be an absolute path.
+
    // TODO: lots here can be improved
    // e.g. it could be broken into smaller functions, the JS could be
    // generated in a more structured way, etc.
@@ -943,9 +941,9 @@ impl DocsTree {
             .collect::<Vec<JsNode>>()
 
    }
-
-
+   // A function that generates JavaScript code to manage the state of the left sidebar.
    fn generate_left_sidebar_state(&self, nodes: &[JsNode], base: &Path) -> String {
+         // Convert Rust nodes into a JavaScript graph
          let js_dag = nodes
             .iter()
             .map(|node| {
@@ -960,12 +958,14 @@ impl DocsTree {
             .collect::<Vec<String>>()
             .join(", ");
 
+        //  Generate all true nodes for the initial state
         let all_nodes_true = nodes
             .iter()
             .map(|node| format!("'{}': true", node.key))
             .collect::<Vec<String>>()
             .join(", ");
 
+        // Set the initial state of the left sidebar
         format!(
             r#"{{
                 showWorkflows: $persist({}).using(sessionStorage),
@@ -1086,6 +1086,10 @@ impl DocsTree {
             }
         }
     }
+
+    /// Render a left sidebar component given a path.
+   ///
+   /// Path is expected to be an absolute path.
   
    fn render_left_sidebar<P: AsRef<Path>>(&self, path: P) -> Markup {
        let root = self.root();
@@ -1107,8 +1111,13 @@ impl DocsTree {
                .replace(".", "_")
                .replace(std::path::MAIN_SEPARATOR_STR, "_")
        };
+       // Build nodes
        let all_nodes = Self::build_left_sidebar_nodes(self, root, path, rel_path, make_key, base);
+       
+       // Generate state
        let data = Self::generate_left_sidebar_state(self, &all_nodes, base);
+       
+       // Render HTML
        Self::render_left_sidebar_html(&self, &data, base, root, path)
    }
 
